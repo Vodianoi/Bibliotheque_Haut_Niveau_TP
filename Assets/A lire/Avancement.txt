@@ -1,0 +1,26 @@
+Ce qui est fait:
+	- Unwrap linéaire et non linéaire (fonctions UnwrapRepeat et LinearUnwrapRepeat dans Deshabillage.cs)
+	- Placement d'Elements Structurants (ES) à la place des triangles (Fonction ChangeRepeat dans Deshabillage.cs)
+	- Placement des ES en cercle et reconstruction du deuxième modèle avec les ES, orienté avec la normal du triangle (Fonction LerpInCircle dans SuperStructure.cs) 
+	- Overlap pour éviter de construire trop d'ES ou pour réduire les ES si trop gros (Fonction ChangeRangeTo dans SuperStructure.cs)
+	- Ajout de cubes supplémentaires pour combler le manque avec l'overlap (Fonction ReformRepeat dans Deshabillage.cs)
+	- Reconstruction des triangles à partir des ES. (Fonction ReformRepeat dans Deshabillage.cs)
+	- Tous ce qui est fait marche dans les deux sens (du premier object au deuxième et vice-versa) (Fonction SwitchTrianglesList dans Deshabillage.cs)
+	- Simple GPU instancing et optimisation de la création des ES. J'ai également cherché comment instantier grâce à Graphics.DrawMeshInstanced() mais cela demandait de toucher aux Shaders et je n'ai plus asez de temps pour me plonger dedans. (Fonction ChangeRangeTo dans SuperStructure.cs)
+	
+Ce qui n'est pas fait:
+	- Simulation de foule
+	- Possibilité d'utiliser deux mesh différents (je n'avais pas vu cette consigne au début, je comptais utiliser des pourcentage pour recréer mais ma structure de code n'est pas faite pour ça de base et le temps m'a manqué pour l'adapter
+	- Phase 4 et 5
+	- Veritable animation du début à la fin (projet de créer une classe Animation pour gérer les différentes étapes)
+	- Rendre le projet graphiquement agréable.
+	
+	
+Structure du code:
+
+	Le code est divisé en deux fichiers:
+		SuperStructure.cs : Structure de données comprenant SuperVertice, SuperTriangle et TrianglesList(pour gérer tous les triangles), sert de boîte à outils.
+		Deshabillage.cs : Script principal permettant de gérer les états du programme.
+		
+Interface:
+	Texte indiquant l'état du programme (OnStateChange delegate dans Deshabillage.cs)

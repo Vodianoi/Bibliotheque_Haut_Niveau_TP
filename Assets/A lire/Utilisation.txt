@@ -1,0 +1,9 @@
+K : Unwrap avec une vitesse linéaire (calculée à partir du paramètre temps du script Deshabillage)
+Enter (keypad) : Unwrap avec le temps (non linéaire)
+C : Change les triangles en cube (ou autre primitive dans les paramètres), avec overlap ou non. Si l'overlap est activé, les cubes qui se chevauches seront supprimés, et recréés pour reconstruire les triangles)
+R : Reconstruit les triangles, (les cubes blancs peuvent être mal placés, peut être corrigé en appuyant sur L)
+L : Replace les primitives au barycentre des triangles
+G : Ajouter/Enlève les rigidbody aux primitives
+O : Place les primitives en cercle autour du mesh à reconstruire et switch l'objet courant (attendre la fin du compute dans l'editor sinon le changement d'objet ne se fait pas et les ES vont se replacer sur le premier objet)
+
+

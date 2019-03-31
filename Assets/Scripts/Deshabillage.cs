@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using System.Linq;
 using UnityEngine.UI;
+using System;
 
 [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
 public class Deshabillage : MonoBehaviour
@@ -37,9 +38,8 @@ public class Deshabillage : MonoBehaviour
     private TrianglesList out_triangles_;   //*
     GameObject out_;
 
-    private TrianglesList out_CurrentTrianglesList_ { get; set; }
 
-    private TrianglesList in_CurrentTrianglesList_;
+    private TrianglesList CurrentTrianglesList_;
 
     private List<int> intervals_;
     private int nbFrameTotal_;
@@ -48,10 +48,9 @@ public class Deshabillage : MonoBehaviour
     private int nbTriangle_dec;
     //Number of vertices
     private int nbTriangle;
-    private bool isWrapping = false;
-    private bool sorted;
-    private bool preparing = false;
     Text txt;
+
+    public Color PrimColor;
 
     Vector3 Size;
 
@@ -66,10 +65,12 @@ public class Deshabillage : MonoBehaviour
     int k = 0;
     int nbTrianglesToDestroy = 0;
     int prev_nbTrianglesToDestroy = 0;
-    private bool isRecreatingTriangles;
-    private bool PrimCreated;
 
-    public bool isMoving { get; private set; }
+    private bool PrimCreated;
+    private bool sorted;
+    private bool computed;
+
+    bool Original = true;
 
     /// <summary>
     /// Deconstruction axis.
@@ -84,9 +85,36 @@ public class Deshabillage : MonoBehaviour
     public delegate void OnSpeedChangeDelegate(float newSpeed);
     public event OnSpeedChangeDelegate OnSpeedChange;
 
+    public delegate void OnStateChangeDelegate(State newState);
+    public event OnStateChangeDelegate OnStateChange;
+
+
+    private State state = State.Idle;
+    private State m_State = State.Idle;
+
     private float StartTime;
 
     public float TimeLerp;
+
+    private float timePerTriangle;
+    private float frameSize;
+
+    public bool Overlap;
+
+
+    public PrimitiveType primitiveType;
+    
+    public enum State
+    {
+        Idle,
+        Wrapping,
+        RecreatingTriangles,
+        Changing,
+        Moving,
+        Sliding,
+        Computing,
+        LinearWrapping
+    }
 
     #region MonoBehaviour Methods
     void Start()
@@ -94,32 +122,19 @@ public class Deshabillage : MonoBehaviour
         Clear();
         txt = FindObjectOfType<Text>();
         OnSpeedChange += SpeedChangeHandler; //Associate event "OnSpeedChange" to "SpeedChangeHandler" method
+        OnStateChange += StateChangeHandler; //Associate event "OnStateChange" to "StateChangeHandler" method
         Size = new Vector3(
             Mathf.Abs(in_triangles_.triangles[0].barycenter[0] - in_triangles_.triangles[in_triangles_.triangles.Count - 1].barycenter[0]),
             Mathf.Abs(in_triangles_.triangles[0].barycenter[1] - in_triangles_.triangles[in_triangles_.triangles.Count - 1].barycenter[1]),
             Mathf.Abs(in_triangles_.triangles[0].barycenter[2] - in_triangles_.triangles[in_triangles_.triangles.Count - 1].barycenter[2])
         );
 
-        in_CurrentTrianglesList_ = in_triangles_;
-        out_CurrentTrianglesList_ = out_triangles_;
+        //CurrentTrianglesList_ = in_triangles_;
         PrepareTransform();
     }
 
+
     private void Update()
-    {
-
-
-    }
-
-    private float timePerTriangle;
-    private bool isChanging;
-    private bool isSliding;
-    private bool isComputing;
-    private bool computed;
-    private float frameSize;
-    private bool isLinearWrapping;
-
-    void FixedUpdate()
     {
 
         if (Input.GetKeyDown(KeyCode.Space))
@@ -135,44 +150,37 @@ public class Deshabillage : MonoBehaviour
         }
         if (Input.GetKey(KeyCode.KeypadEnter))
         {
-            //Debug.Log("Unwrapping");
+            Debug.Log("Unwrapping...");
             //Unwrap();
             nbTrianglesToDestroy = 0;
-            isWrapping = true;
-            isRecreatingTriangles = false;
-            isChanging = false;
-            isMoving = false;
-            isSliding = false;
-            isComputing = false;
-            isLinearWrapping = false;
+            state = State.Wrapping;
             timer = 0;
             k = 0;
         }
         if (Input.GetKeyDown(KeyCode.C))
         {
+            Debug.Log("Changing...");
             //in_triangles_.ChangeRangeTo()
             //gameObject.GetComponent<Collider>().enabled = false;
-            isChanging = true;
-            isRecreatingTriangles = false;
-            isWrapping = false;
-            isMoving = false;
-            isSliding = false;
-            isComputing = false;
-            isLinearWrapping = false;
+            state = State.Changing;
             nbTrianglesToDestroy = 0;
             timer = 0;
             k = 0;
         }
         if (Input.GetKeyDown(KeyCode.L))
         {
-            in_CurrentTrianglesList_.SwitchRigidbody();
-            isMoving = true;
-            isRecreatingTriangles = false;
-            isWrapping = false;
-            isChanging = false;
-            isSliding = false;
-            isComputing = false;
-            isLinearWrapping = false;
+            Debug.Log("Lerping...");
+            if (Original)
+            {
+                if (in_.transform.GetChild(0).GetComponent<Rigidbody>())
+                    in_triangles_.SwitchRigidbody();
+            }
+            else
+            {
+                if (out_.transform.GetChild(0).GetComponent<Rigidbody>())
+                    out_triangles_.SwitchRigidbody();
+            }
+            state = State.Moving;
             StartTime = Time.fixedTime;
             nbTrianglesToDestroy = 0;
             timer = 0;
@@ -180,51 +188,49 @@ public class Deshabillage : MonoBehaviour
         }
         if (Input.GetKeyDown(KeyCode.G))
         {
-            in_CurrentTrianglesList_.SwitchRigidbody();
+            Debug.Log("Switch Gravity (Rigidbody)");
+            if (Original)
+                in_triangles_.SwitchRigidbody();
+            else
+                out_triangles_.SwitchRigidbody();
         }
         if (Input.GetKeyDown(KeyCode.R))
         {
-            isRecreatingTriangles = true;
-            isMoving = false;
-            isWrapping = false;
-            isChanging = false;
-            isSliding = false;
-            isComputing = false;
-            isLinearWrapping = false;
+            Debug.Log("Reforming...");
+            state = State.RecreatingTriangles;
             nbTrianglesToDestroy = 0;
             timer = 0;
             k = 0;
         }
         if (Input.GetKeyDown(KeyCode.O))
         {
-            isSliding = true;
-            isRecreatingTriangles = false;
-            isMoving = false;
-            isWrapping = false;
-            isChanging = false;
-            isComputing = false;
-            isLinearWrapping = false;
+            Debug.Log("Sliding...");
+            state = State.Sliding;
             nbTrianglesToDestroy = 0;
+            StartTime = Time.fixedTime;
             timer = 0;
             k = 0;
         }
         if (Input.GetKeyDown(KeyCode.K))
         {
-            isLinearWrapping = true;
-            isSliding = false;
-            isRecreatingTriangles = false;
-            isMoving = false;
-            isWrapping = false;
-            isChanging = false;
-            isComputing = false;
+            Debug.Log("Linear Unwrapping...");
+            state = State.LinearWrapping;
             nbTrianglesToDestroy = 0;
             timer = 0;
             k = 0;
         }
         if (Input.GetKeyDown(KeyCode.Alpha0))
         {
+            Debug.Log("Switch gameobjects.");
             SwitchTrianglesList();
         }
+
+    }
+
+
+    void FixedUpdate()
+    {
+
 
         //int delTriangles = nbTriangle_dec - (nbTriangle - nbTriangle_dec);
 
@@ -232,93 +238,91 @@ public class Deshabillage : MonoBehaviour
         //txt.text = "Triangles supprimés: " + (lastNbDelTriangle - delTriangles);
         //lastNbDelTriangle = delTriangles;
 
+        switch (state)
+        {
+            case State.Changing:
+                ChangeRepeat();
+                SaveToMesh();
+                break;
+
+
+            case State.Computing:
+                ComputeIntervals();
+                break;
+
+
+            case State.LinearWrapping:
+                LinearUnwrapRepeat();
+                SaveToMesh();
+                break;
+
+
+            case State.Moving:
+                {
+                    float timeSinceStarted = Time.fixedTime - StartTime;
+                    float percentageComplete = timeSinceStarted / TimeLerp;
+
+                    if (Original)
+                        in_triangles_.LerpAllTo(in_triangles_.unaltered_triangles, percentageComplete);
+                    else
+                        out_triangles_.LerpAllTo(out_triangles_.unaltered_triangles, percentageComplete);
+
+                    if (percentageComplete >= 1.0f)
+                    {
+                        Debug.Log("Stop moving");
+                        state = State.Idle;
+                    }
+                    break;
+                }
+
+
+            case State.RecreatingTriangles:
+                if (Original ? in_triangles_.primitives.Count == 0 : out_triangles_.primitives.Count == 0)
+                    state = State.Idle;
+                else
+                {
+                    ReformRepeat();
+                    SaveToMesh();
+                }
+                break;
+
+
+            case State.Sliding:
+                {
+                    float timeSinceStarted = Time.fixedTime - StartTime;
+                    float percentageComplete = timeSinceStarted / TimeLerp;
+                    if (Original)
+                        in_triangles_.LerpInCircle(in_, out_, percentageComplete, nbTriangle);
+                    else
+                        out_triangles_.LerpInCircle(out_, in_, percentageComplete, nbTriangle);
+
+                    if (percentageComplete >= 1.0f)
+                    {
+                        SwitchTrianglesList();
+                        Debug.Log("Stop sliding");
+
+                    }
+                    break;
+                }
+
+
+            case State.Wrapping:
+                UnwrapRepeat();
+                SaveToMesh();
+                break;
+        }
+
         if (m_Speed != speed && OnSpeedChange != null)
         {
             m_Speed = speed;
             OnSpeedChange(speed);
         }
 
-        if (preparing)
+        if (m_State != state && OnStateChange != null)
         {
-            timePerTriangle = time / nbTriangle;
-            Debug.Log("Pas: " + timePerTriangle);
-
-            preparing = false;
-            isComputing = true;
-            timer = 0;
+            m_State = state;
+            OnStateChange(state);
         }
-
-
-        if (isWrapping)
-        {
-            if (nbTrianglesToDestroy < nbTriangle && in_CurrentTrianglesList_.triangles.Count > 0)
-            {
-                UnwrapRepeat();
-                SaveToMesh();
-            }
-        }
-
-        if (isChanging)
-        {
-            if (nbTrianglesToDestroy < nbTriangle)
-            {
-                ChangeRepeat();
-                SaveToMesh();
-            }
-        }
-
-        if (isMoving)
-        {
-            float timeSinceStarted = Time.fixedTime - StartTime;
-            float percentageComplete = timeSinceStarted / TimeLerp;
-            in_CurrentTrianglesList_.LerpAllTo(in_CurrentTrianglesList_.unaltered_triangles, percentageComplete);
-            if (percentageComplete >= 1.0f)
-            {
-                Debug.Log("Stop moving");
-                isMoving = false;
-            }
-        }
-
-        if (isSliding)
-        {
-            float timeSinceStarted = Time.fixedTime - StartTime;
-            float percentageComplete = timeSinceStarted / TimeLerp;
-            if (in_CurrentTrianglesList_ == in_triangles_)
-                in_CurrentTrianglesList_.LerpInCircle(in_, percentageComplete);
-            else
-                in_CurrentTrianglesList_.LerpInCircle(out_, percentageComplete);
-
-            if (percentageComplete >= 1.0f)
-            {
-                Debug.Log("Stop moving");
-                isMoving = false;
-            }
-        }
-
-        if (isRecreatingTriangles)
-        {
-            if (in_CurrentTrianglesList_.primitives.Count == 0)
-                isRecreatingTriangles = false;
-            else
-            {
-                ReformRepeat();
-                SaveToMesh();
-            }
-        }
-
-        if (isComputing)
-        {
-            ComputeIntervals();
-        }
-
-        if (isLinearWrapping)
-        {
-            LinearUnwrapRepeat();
-            SaveToMesh();
-        }
-
-
-
     }
     #endregion
 
@@ -326,25 +330,37 @@ public class Deshabillage : MonoBehaviour
 
     void UnwrapRepeat()
     {
-        while (Time.fixedDeltaTime * k > timer && nbTrianglesToDestroy < in_triangles_.unaltered_triangles.Count)
+        while (Time.fixedDeltaTime * k > timer && nbTrianglesToDestroy < nbTriangle)
         {
             timer += timePerTriangle;
             nbTrianglesToDestroy++;
         }
-
-        List<SuperTriangle> lst = in_CurrentTrianglesList_.PopRange(nbTrianglesToDestroy);
         //out_triangles_ = new TrianglesList();
-        out_CurrentTrianglesList_.triangles = lst;
         //Debug.Log(timer);
-        k++;
-        if (nbTrianglesToDestroy >= nbTriangle)
+
+        if (Original ? in_triangles_.triangles.Count != 0 : out_triangles_.triangles.Count != 0)
+        {
+            List<SuperTriangle> lst = Original ? in_triangles_.PopRange(nbTrianglesToDestroy) : out_triangles_.PopRange(nbTrianglesToDestroy);
+            if (Original)
+                out_triangles_.triangles = lst;
+            else
+                in_triangles_.triangles = lst;
+
+        }
+        else
         {
             Debug.Log("Stop wrapping");
             SwitchTrianglesList();
-            isWrapping = false;
         }
+
+        k++;
+
+
     }
 
+    /// <summary>
+    /// Unwrap with linear speed (compute with time variable"
+    /// </summary>
     void LinearUnwrapRepeat()
     {
         if (!computed)
@@ -353,40 +369,45 @@ public class Deshabillage : MonoBehaviour
             Debug.Log("not computed yet");
             return;
         }
-        while (Time.fixedDeltaTime * k > timer && nbTrianglesToDestroy < in_triangles_.unaltered_triangles.Count)
+        while (Time.fixedDeltaTime * k > timer && nbTrianglesToDestroy < nbTriangle)
         {
             timer += frameSize;
             nbTrianglesToDestroy++;
         }
 
         //Debug.Log("frame: " + nbTrianglesToDestroy);
-        List<SuperTriangle> lst = in_CurrentTrianglesList_.PopRange(nbTrianglesToDestroy);
+        List<SuperTriangle> lst = Original ? in_triangles_.PopRange(nbTrianglesToDestroy) : out_triangles_.PopRange(nbTrianglesToDestroy);
         //out_triangles_ = new TrianglesList();
-        out_CurrentTrianglesList_.triangles = lst;
+        if (Original)
+            out_triangles_.triangles = lst;
+        else
+            in_triangles_.triangles = lst;
         //Debug.Log(timer);
         k++;
         if (nbTrianglesToDestroy >= nbTriangle)
         {
             Debug.Log("Stop linear wrapping");
             SwitchTrianglesList();
-            isLinearWrapping = false;
         }
     }
 
+    /// <summary>
+    /// Compute intervals for linear unwrapping
+    /// </summary>
     void ComputeIntervals()
     {
-        while (Time.fixedDeltaTime * k > timer && nbTrianglesToDestroy < in_triangles_.unaltered_triangles.Count)
+        while (Time.fixedDeltaTime * k > timer && nbTrianglesToDestroy < nbTriangle)
         {
             timer += timePerTriangle;
             nbTrianglesToDestroy++;
         }
-        intervals_.Add(nbTrianglesToDestroy);
         k++;
         nbFrameTotal_++;
         if (nbTrianglesToDestroy >= nbTriangle)
         {
             Debug.Log("Stop compute intervals");
-            switch(axis){
+            switch (axis)
+            {
                 case TrianglesList.Axis.X:
                     frameSize = Size.x / nbFrameTotal_;
                     break;
@@ -397,50 +418,50 @@ public class Deshabillage : MonoBehaviour
                     frameSize = Size.z / nbFrameTotal_;
                     break;
             }
-            isComputing = false;
+            state = State.Idle;
             computed = true;
         }
     }
 
+    /// <summary>
+    /// Switch objects
+    /// </summary>
     void SwitchTrianglesList()
     {
-        if (in_CurrentTrianglesList_ == in_triangles_)
+
+        PrimCreated = false;
+
+        Original = !Original;
+        in_triangles_.primitives = new List<GameObject>();
+        out_triangles_.primitives = new List<GameObject>();
+        if (Original)
         {
-            for (int i = 0; i < in_.transform.childCount; ++i)
+            nbTriangle = in_triangles_.unaltered_triangles.Count;
+            foreach (var prim in GameObject.FindGameObjectsWithTag("Primitives"))
             {
-                in_.transform.GetChild(i).SetParent(out_.transform);
-                GameObject.Destroy(in_.transform.GetChild(i).gameObject);
-
+                prim.transform.SetParent(in_.transform);
+                in_triangles_.primitives.Add(prim);
             }
-            out_CurrentTrianglesList_ = in_triangles_;
-            in_CurrentTrianglesList_ = out_triangles_;
-
         }
-        else if (in_CurrentTrianglesList_ == out_triangles_)
+        else
         {
-            for (int i = 0; i < out_.transform.childCount; ++i)
+            nbTriangle = out_triangles_.unaltered_triangles.Count;
+            foreach (var prim in GameObject.FindGameObjectsWithTag("Primitives"))
             {
-                out_.transform.GetChild(i).SetParent(in_.transform);
-                GameObject.Destroy(out_.transform.GetChild(i).gameObject);
+                prim.transform.SetParent(out_.transform);
+                out_triangles_.primitives.Add(prim);
             }
-            out_CurrentTrianglesList_ = out_triangles_;
-            in_CurrentTrianglesList_ = in_triangles_;
-
-        }
-        //PrimCreated = false;
-        //in_CurrentTrianglesList_.primitives = new List<GameObject>();
-        //out_CurrentTrianglesList_.primitives = new List<GameObject>();
-
-        for (int i = 0; i < in_CurrentTrianglesList_.triangles.Count; ++i)
-        {
-            in_CurrentTrianglesList_.triangles[i].barycenter = in_CurrentTrianglesList_.triangles[i].GetBarycenter();
         }
 
+        Debug.Log("InPrimNb: " + in_.transform.childCount + ", outPrimNb: " + out_.transform.childCount);
         computed = false;
-        isComputing = true;
+        state = State.Computing;
 
     }
 
+    /// <summary>
+    /// Change triangles to primitive
+    /// </summary>
     void ChangeRepeat()
     {
         prev_nbTrianglesToDestroy = nbTrianglesToDestroy;
@@ -449,54 +470,94 @@ public class Deshabillage : MonoBehaviour
             timer += timePerTriangle;
             nbTrianglesToDestroy++;
         }
-        while (Time.fixedDeltaTime * k > timer && nbTrianglesToDestroy < in_CurrentTrianglesList_.unaltered_triangles.Count);
+        while (Time.fixedDeltaTime * k > timer && nbTrianglesToDestroy < nbTriangle);
         if (PrimCreated)
-            in_CurrentTrianglesList_.ReformRange(nbTrianglesToDestroy, prev_nbTrianglesToDestroy, false);
+            if (Original)
+                in_triangles_.ReformRange(nbTrianglesToDestroy, prev_nbTrianglesToDestroy, false);
+            else
+                out_triangles_.ReformRange(nbTrianglesToDestroy, prev_nbTrianglesToDestroy, false);
         else
         {
-            if (in_CurrentTrianglesList_ == in_triangles_)
-                in_CurrentTrianglesList_.ChangeRangeTo(nbTrianglesToDestroy, prev_nbTrianglesToDestroy, PrimitiveType.Cube, in_);
+            if (Original)
+                in_triangles_.ChangeRangeTo(nbTrianglesToDestroy, prev_nbTrianglesToDestroy, primitiveType, in_, PrimColor, Overlap);
             else
-                in_CurrentTrianglesList_.ChangeRangeTo(nbTrianglesToDestroy, prev_nbTrianglesToDestroy, PrimitiveType.Cube, out_);
+                out_triangles_.ChangeRangeTo(nbTrianglesToDestroy, prev_nbTrianglesToDestroy, primitiveType, out_, PrimColor, Overlap);
         }
-        List<SuperTriangle> lst = in_CurrentTrianglesList_.PopRange(nbTrianglesToDestroy);
+        List<SuperTriangle> lst = Original ? in_triangles_.PopRange(nbTrianglesToDestroy) : out_triangles_.PopRange(nbTrianglesToDestroy);
 
         k++;
         if (nbTrianglesToDestroy >= nbTriangle)
         {
             Debug.Log("Stop Changing");
-            isChanging = false;
+            state = State.Idle;
         }
     }
 
+    /// <summary>
+    /// Recreate triangles
+    /// </summary>
     void ReformRepeat()
     {
+
+        if (Original)
+        {
+            if (nbTriangle > in_.transform.childCount)
+                for (int i = 0; i < nbTriangle - in_.transform.childCount; ++i)
+                {
+                    GameObject prim = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                    //Graphics.DrawMesh(progenitor.GetComponent<MeshFilter>().mesh, t.barycenter, Quaternion.LookRotation(t.normal), material, 0);
+                    prim.transform.parent = in_.transform;
+                    in_triangles_.primitives.Add(prim);
+                    prim.transform.localScale = new Vector3(0.05f, 0.05f, 0.05f);
+
+                    prim.transform.localPosition = in_triangles_.unaltered_triangles[nbTriangle - 1 - i].barycenter;
+                    prim.tag = "Primitives";
+                }
+        }
+        else
+        {
+            if (nbTriangle > out_.transform.childCount)
+                for (int i = 0; i < nbTriangle - out_.transform.childCount; ++i)
+                {
+                    GameObject prim = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                    //Graphics.DrawMesh(progenitor.GetComponent<MeshFilter>().mesh, t.barycenter, Quaternion.LookRotation(t.normal), material, 0);
+                    prim.transform.parent = out_.transform;
+                    out_triangles_.primitives.Add(prim);
+                    prim.transform.localScale = new Vector3(0.05f, 0.05f, 0.05f);
+                    prim.transform.localPosition = out_triangles_.unaltered_triangles[nbTriangle - 1 - i].barycenter;
+                    prim.tag = "Primitives";
+                }
+        }
+
         prev_nbTrianglesToDestroy = nbTrianglesToDestroy;
         do
         {
             timer += timePerTriangle;
             nbTrianglesToDestroy++;
         }
-        while (Time.fixedDeltaTime * k > timer && nbTrianglesToDestroy < in_CurrentTrianglesList_.unaltered_triangles.Count);
+        while (Time.fixedDeltaTime * k > timer && nbTrianglesToDestroy < nbTriangle);
 
-        in_CurrentTrianglesList_.ReformRange(nbTrianglesToDestroy, prev_nbTrianglesToDestroy);
+        if (Original)
+            in_triangles_.ReformRange(nbTrianglesToDestroy, prev_nbTrianglesToDestroy);
+        else
+            out_triangles_.ReformRange(nbTrianglesToDestroy, prev_nbTrianglesToDestroy);
         //List<SuperTriangle> lst = in_triangles_.PopRange(nbTrianglesToDestroy);
 
         k++;
         if (nbTrianglesToDestroy >= nbTriangle)
         {
-            isRecreatingTriangles = false;
+            state = State.Idle;
             PrimCreated = true;
         }
     }
 
     /// <summary>
-    /// Invoked when speed variable change
+    /// Invoked when speed variable change (not used anymore)
     /// </summary>
     /// <param name="newSpeed"></param>
     private void SpeedChangeHandler(float newSpeed)
     {
-        if (isWrapping)
+        if (state == State.Wrapping)
         {
             //Debug.Log("Cancel");
             //CancelInvoke("DestroyAfter");
@@ -505,6 +566,12 @@ public class Deshabillage : MonoBehaviour
             //coroutine = StartCoroutine(UnwrapRepeat(speed / 100.0f));
 
         }
+    }
+
+
+    private void StateChangeHandler(State newState)
+    {
+        GameObject.Find("State_txt").GetComponent<Text>().text = newState.ToString();
     }
 
     /// <summary>
@@ -547,9 +614,22 @@ public class Deshabillage : MonoBehaviour
     private void SaveToMesh()
     {
         //if (out_triangles_.ToIntList() != null)
+        //if (Original)
+        //{
         out_mesh_f.mesh.triangles = out_triangles_.ToIntList();
         in_mesh_f.mesh.triangles = in_triangles_.ToIntList();
         nbTriangle_dec = in_triangles_.triangles.Count;
+        nbTriangle = in_triangles_.unaltered_triangles.Count;
+        //}
+        //else
+        //{
+        //    out_mesh_f.mesh.triangles = in_triangles_.ToIntList();
+        //    in_mesh_f.mesh.triangles = out_triangles_.ToIntList();
+        //    nbTriangle_dec = out_triangles_.triangles.Count;
+        //    nbTriangle = out_triangles_.unaltered_triangles.Count;
+        //}
+
+
 
         //if (isWrapping) return;
 
@@ -569,15 +649,28 @@ public class Deshabillage : MonoBehaviour
     /// </summary>
     public void PrepareTransform()
     {
-        List<SuperTriangle> lstTr = in_CurrentTrianglesList_.SortTriangles(axis);
-        in_CurrentTrianglesList_.triangles = lstTr;
-        in_CurrentTrianglesList_.unaltered_triangles = lstTr;
-
-        preparing = true;
-
+        List<SuperTriangle> lstTr = Original ? in_triangles_.SortTriangles(axis) : out_triangles_.SortTriangles(axis);
+        if (Original)
+        {
+            in_triangles_.triangles = lstTr;
+            in_triangles_.unaltered_triangles = lstTr;
+            out_triangles_.unaltered_triangles = lstTr;
+        }
+        else
+        {
+            out_triangles_.triangles = lstTr;
+            out_triangles_.unaltered_triangles = lstTr;
+            in_triangles_.unaltered_triangles = lstTr;
+        }
         SaveToMesh(); //Save infos to mesh
-        out_CurrentTrianglesList_.unaltered_triangles = in_CurrentTrianglesList_.triangles;
+        //out_CurrentTrianglesList_.unaltered_triangles = in_CurrentTrianglesList_.triangles;
         sorted = true;
+
+        timePerTriangle = time / nbTriangle;
+        Debug.Log("Pas: " + timePerTriangle);
+
+        state = State.Computing;
+        timer = 0;
     }
 
     /// <summary>
@@ -586,7 +679,7 @@ public class Deshabillage : MonoBehaviour
     public void UnwrapOBO()
     {
         if (!sorted) PrepareTransform();
-        SuperTriangle t = in_CurrentTrianglesList_.Pop();
+        SuperTriangle t = Original ? in_triangles_.Pop() : out_triangles_.Pop();
         if (t == null) return;
         //Debug.DrawLine(t.vertices[0].vertice, t.vertices[1].vertice, Color.red, 2.0f);
         //Debug.DrawLine(t.vertices[1].vertice, t.vertices[2].vertice, Color.red, 2.0f);
@@ -601,7 +694,8 @@ public class Deshabillage : MonoBehaviour
     public void Unwrap()
     {
         if (!sorted) PrepareTransform();
-        isWrapping = true;
+
+        state = State.Wrapping;
         InvokeRepeating("Deconstruct", (float)(nbTriangle_dec / nbTriangle), (100.1f - speed) / 1000.0f);
     }
 
@@ -610,17 +704,22 @@ public class Deshabillage : MonoBehaviour
     /// </summary>
     void Deconstruct()
     {
-        SuperTriangle t = in_triangles_.Pop();
+
+        SuperTriangle t = Original ? in_triangles_.Pop() : out_triangles_.Pop();
         if (t != null)
         {
             //Debug.DrawLine(t.vertices[0].vertice, t.vertices[1].vertice, Color.red, 2.0f);
             //Debug.DrawLine(t.vertices[1].vertice, t.vertices[2].vertice, Color.red, 2.0f);
             //Debug.DrawLine(t.vertices[2].vertice, t.vertices[0].vertice, Color.red, 2.0f);
-            out_triangles_.triangles.Add(t);
+            if (Original)
+                out_triangles_.triangles.Add(t);
+            else
+                in_triangles_.triangles.Add(t);
+
             SaveToMesh();
         }
         else
-            isWrapping = false;
+            state = State.Idle;
 
     }
     #endregion

@@ -22,20 +22,22 @@ public class SuperTriangle
     {
         if (_v.Count > 3)
             throw new System.Exception("Trop d'indices");
-        vertices = _v;
-        barycenter = GetBarycenter();
+        vertices = new int[3] { _v[0].initIndex, _v[1].initIndex, _v[2].initIndex };
+        barycenter = GetBarycenter(ref _v);
+        normal = Vector3.Cross(_v[1].vertice - _v[0].vertice, _v[2].vertice - _v[1].vertice);
     }
 
-    public List<SuperVertice> vertices;
+    public int[] vertices;
     public Vector3 barycenter;
+    public Vector3 normal;
     public GameObject primitive;
 
-    public Vector3 GetBarycenter()
+    public Vector3 GetBarycenter(ref List<SuperVertice> _v)
     {
         Vector3 r_ = new Vector3();
-        r_[0] = (vertices[0].vertice.x + vertices[1].vertice.x + vertices[2].vertice.x) / 3.0f;
-        r_[1] = (vertices[0].vertice.y + vertices[1].vertice.y + vertices[2].vertice.y) / 3.0f;
-        r_[2] = (vertices[0].vertice.z + vertices[1].vertice.z + vertices[2].vertice.z) / 3.0f;
+        r_[0] = (_v[0].vertice.x + _v[1].vertice.x + _v[2].vertice.x) / 3.0f;
+        r_[1] = (_v[0].vertice.y + _v[1].vertice.y + _v[2].vertice.y) / 3.0f;
+        r_[2] = (_v[0].vertice.z + _v[1].vertice.z + _v[2].vertice.z) / 3.0f;
         return r_;
     }
 
@@ -113,34 +115,54 @@ public class TrianglesList
 
     }
 
-    public void ChangeRangeTo(int _range, int prev_range, PrimitiveType _type, GameObject _obj)
+
+    GameObject progenitor;
+    public void ChangeRangeTo(int _range, int prev_range, PrimitiveType _type, GameObject _obj, Color _color, bool _overlap)
     {
         if (triangles.Count == 0) return;
         int start = unaltered_triangles.Count - _range < 0 ? 0 : unaltered_triangles.Count - _range;
         List<SuperTriangle> tr = unaltered_triangles.GetRange(start, _range - prev_range);
-
+        Material material = null;
+        if (progenitor == null)
+        {
+            progenitor = GameObject.CreatePrimitive(_type);
+            material = progenitor.GetComponent<MeshRenderer>().material;
+            progenitor.GetComponent<MeshRenderer>().material.enableInstancing = true;
+            progenitor.transform.localScale = new Vector3(0.05f, 0.05f, 0.05f);
+            //prim.AddComponent<Rigidbody>();
+            material.color = _color;
+            material.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
+            material.hideFlags = HideFlags.DontSaveInEditor;
+        }
 
         foreach (var t in tr)
         {
-            GameObject prim = GameObject.CreatePrimitive(_type);
-            prim.transform.localScale = new Vector3(0.05f, 0.05f, 0.05f);
+            GameObject prim = GameObject.Instantiate(progenitor);
+            //Graphics.DrawMesh(progenitor.GetComponent<MeshFilter>().mesh, t.barycenter, Quaternion.LookRotation(t.normal), material, 0);
             prim.transform.parent = _obj.transform;
-            //prim.AddComponent<Rigidbody>();
-            Vector3 N = Vector3.Cross(t.vertices[1].vertice - t.vertices[0].vertice, t.vertices[2].vertice - t.vertices[1].vertice);
-            prim.transform.rotation = Quaternion.LookRotation(N);
+            Vector3 N = t.normal;
+            if (N != Vector3.zero)
+                prim.transform.rotation = Quaternion.LookRotation(N);
             t.primitive = prim;
             primitives.Add(prim);
-            prim.transform.localPosition = new Vector3(t.barycenter[0], t.barycenter[1], t.barycenter[2]);
-            Collider[] overlap = Physics.OverlapBox(prim.transform.localPosition, prim.transform.localScale / 2);
+            prim.transform.localPosition = t.barycenter;
+            prim.tag = "Primitives";
+            Collider[] overlap = Physics.OverlapBox(prim.transform.position, prim.transform.localScale * 2);
             int i = 0;
-            //while (overlap.Length > 4)
-            //{
-            //    overlap = Physics.OverlapBox(prim.transform.localPosition, prim.transform.localScale / 2);
-            //    //prim.transform.localScale /= 2;
-            //    //prim.SetActive(false);
-            //    //primitives.Remove(prim);
-            //    //GameObject.Destroy(prim);
-            //}
+            if (_overlap)
+                if (overlap.Length > 1)
+                {
+                    //prim.transform.localScale /= 1 + (i++ * .1f);
+                    //overlap = Physics.OverlapSphere(prim.transform.position, 2 * prim.transform.localScale.x + (10.0f / 100.0f * prim.transform.localScale.x));
+                    //if (i > 1000)
+                    //{
+                    //    Debug.Log("Break");
+                    //    break;
+                    //}
+                    //prim.SetActive(false);
+                    primitives.Remove(prim);
+                    GameObject.Destroy(prim);
+                }
 
         }
 
@@ -204,22 +226,22 @@ public class TrianglesList
         {
             //if (primitives[i].transform.localPosition != _tr[i].barycenter)
             primitives[i].transform.localPosition = Vector3.Slerp(primitives[i].transform.localPosition, _tr[i].barycenter, t);
-            Vector3 N = Vector3.Cross(_tr[i].vertices[1].vertice - _tr[i].vertices[0].vertice, _tr[i].vertices[2].vertice - _tr[i].vertices[0].vertice);
+            Vector3 N = _tr[i].normal;
             ////if (primitives[i].transform.rotation != Quaternion.LookRotation(N))
             primitives[i].transform.rotation = Quaternion.Lerp(primitives[i].transform.rotation, Quaternion.LookRotation(N), t);
         }
     }
 
-    public void LerpInCircle(GameObject _o, float t)
+    public void LerpInCircle(GameObject _i, GameObject _o, float t, int nbTriangles)
     {
-        for (int i = 0; i < primitives.Count; ++i)
+        int max = GameObject.FindGameObjectsWithTag("Primitives").Length;
+        for (int i = 0; i < max; ++i)
         {
-            //Vector3 F, A, C;
-            float radius = 5.0f;
-            float angle = Mathf.LerpAngle(0.0f, 360.0f, t);
-            float sin = Mathf.Sin(angle);
-            float cos = Mathf.Cos(angle);
-           primitives[i].transform.localPosition = Vector3.Lerp(primitives[i].transform.localPosition, new Vector3(radius * cos, 0, radius * sin), t);
+            Vector3 SpawnPos = new Vector3(_o.transform.position.x + (Mathf.Cos(i * (2 * Mathf.PI / nbTriangles)) /** _o.GetComponent<Renderer>().bounds.size.x*/),
+                /*_o.transform.position.y*/0,
+                _o.transform.position.z + Mathf.Sin(i * (2 * Mathf.PI / nbTriangles)) /** _o.GetComponent<Renderer>().bounds.size.x*/);
+
+            primitives[i].transform.position = Vector3.Slerp(primitives[i].transform.position, SpawnPos, t);
         }
     }
 
@@ -252,7 +274,7 @@ public class TrianglesList
         {
             foreach (var v in t.vertices)
             {
-                if (v.initIndex == i)
+                if (v == i)
                 {
                     r.Add(t);
                     break;
@@ -271,11 +293,10 @@ public class TrianglesList
     {
         List<int> r_ = new List<int>();
 
-        if (triangles.Count == 0) return null;
+        if (triangles.Count == 0) return new int[0];
 
         foreach (var t in triangles)
-            foreach (var v in t.vertices)
-                r_.Add(v.initIndex);
+            r_.AddRange(t.vertices);
 
         return r_.ToArray();
     }
@@ -313,16 +334,16 @@ public class TrianglesList
         switch (_a)
         {
             case Axis.X:
-                r_ = triangles.OrderBy(t => t.barycenter[0]); //x
+                r_ = triangles.OrderBy(t => t.barycenter.x); //x
                 break;
             case Axis.Y:
-                r_ = triangles.OrderBy(t => t.barycenter[1]); //y
+                r_ = triangles.OrderBy(t => t.barycenter.y); //y
                 break;
             case Axis.Z:
-                r_ = triangles.OrderBy(t => t.barycenter[2]); //z
+                r_ = triangles.OrderBy(t => t.barycenter.z); //z
                 break;
             default:
-                r_ = triangles.OrderBy(t => t.barycenter[1]);
+                r_ = triangles.OrderBy(t => t.barycenter.y);
                 break;
 
         }
